@@ -1,0 +1,7 @@
+pandas
+scikit-learn
+datasets
+torch
+transformers
+tokenizers==0.20.3
+accelerate

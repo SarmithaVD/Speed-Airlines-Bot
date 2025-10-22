@@ -187,6 +187,24 @@ it is flight AF345,inform
 departing from SEA,inform
 the name on the ticket is Nancy White,inform
 my booking reference number is ZX876C,inform
+"hi, my pnr is XA123B, can you tell me if it's on time and also what is the baggage allowance?",greeting,inform,check_flight_status,ask_policy
+"good morning, for flight UA456, what's the status and the cancellation policy?",greeting,inform,check_flight_status,ask_policy
+"hey, booking ref ZD543F, is it on time and can I change my seat?",greeting,inform,check_flight_status,change_seat
+"hello, for my flight GH654J, tell me the arrival time and the pet policy",greeting,inform,check_arrival_time,ask_policy
+"i need to cancel flight CD321, what's the fee and what is my pnr?",cancel_flight,ask_policy,inform
+"check me in for flight EF987 and tell me about bringing a guitar on board",check_in,ask_policy
+"my flight is KL654, get my boarding pass and tell me if it's delayed",inform,get_boarding_pass,check_flight_status
+"change my seat on flight MN321 and what are the baggage fees?",change_seat,ask_policy
+"hi, what is the baggage allowance and is my flight on time?",greeting,ask_policy,check_flight_status
+"my pnr is CV432B, what is the cancellation policy?",inform,ask_policy
+"for my trip DL432, i need to know the baggage rules and the flight status",inform,ask_policy,check_flight_status
+"is my flight on time and can i check in online?",check_flight_status,check_in
+"i want to know the fee to change my flight and also the status of UA123",ask_policy,check_flight_status
+"hello, for booking LH543G, please cancel it and tell me the refund policy",greeting,inform,cancel_flight,ask_policy
+"hey, what's the status of my flight and can i get my boarding pass?",greeting,check_flight_status,get_boarding_pass
+"i need to check in and also ask about pet travel rules for my flight EK203",check_in,ask_policy,inform
+"my confirmation is BN789P, is the flight late and what are the carry-on rules?",inform,check_flight_status,ask_policy
+"get me a refund for ticket YU123D and explain the process",get_refund,ask_policy,inform
 "hi, my pnr is ZD543F and I need my boarding pass",greeting,inform,get_boarding_pass
 "hello there, for flight UA987, can you check me in?",greeting,inform,check_in
 "good morning, I have booking ref KL321F, I need to cancel it.",greeting,inform,cancel_flight
@@ -248,6 +266,21 @@ my booking reference number is ZX876C,inform
 "can you check me in for flight UA987 and also print the boarding pass?",check_in,get_boarding_pass
 "what's the status of flight DL432 and what gate is it at?",check_flight_status,check_flight_status
 "find me a flight to JFK and tell me the price",search_flight,check_flight_prices
+"is my flight on time?",check_flight_status
+"tell me if my flight is on time",check_flight_status
+"what's the status for flight UA123, is it on time?",inform,check_flight_status
+"hi, my pnr is XA123B, can you tell me if it's on time?",greeting,inform,check_flight_status
+"for my booking GH654J, is the flight on schedule?",inform,check_flight_status
+"i want to know if my flight is delayed",check_flight_status
+"is flight UA456 running on time?",inform,check_flight_status
+"my pnr is ZD543F, tell me the flight status",inform,check_flight_status
+"is my flight going to be late?",check_flight_status
+"hi, is my flight on time and what's the baggage policy?",greeting,check_flight_status,ask_policy
+"for PNR CV432B, check the flight status and also tell me the cancellation rules",inform,check_flight_status,ask_policy
+"tell me the status and baggage rules for flight DL432",inform,check_flight_status,ask_policy
+"is my flight on time and can you check me in?",check_flight_status,check_in
+"my booking is LH543G, is it on time?",inform,check_flight_status
+"i need to know the status of my flight",check_flight_status
 hello,greeting
 hi,greeting
 hey,greeting

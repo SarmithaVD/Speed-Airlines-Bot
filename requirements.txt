@@ -1,0 +1,15 @@
+streamlit
+redis
+streamlit-autorefresh
+requests
+numpy
+sentence-transformers
+scikit-learn
+langchain-huggingface
+langchain-community
+faiss-cpu
+fastapi[all]
+pydantic
+python-dotenv
+langchain-core
+pandas

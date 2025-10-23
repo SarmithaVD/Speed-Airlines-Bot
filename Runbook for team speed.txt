@@ -11,28 +11,21 @@ Backend checks for end_conversation intent via NLU service.
 If detected, backend sends final goodbye message.
 Session ID is deleted/invalidated in Redis (session ended explicitly by user).
 
-4. FAQ Cache Checking
-Backend queries Redis cache for a cached FAQ response for the message.
-If cached response exists:
-Sends the cached response as an instant answer through the frontend.
-If no cached response:
-Continue processing.
-
-5. Query Relevance Classification
+4. Query Relevance Classification
 Backend calls the Relevance Classifier to check if the query is airline-related.
 If irrelevant:
-Frontend displays clarifying prompt like "I can only help with airline questions."
+Frontend displays clarifying prompt.
 Waits for new user input.
 If relevant:
 Continue processing.
 
-6. Conversation State Management
+5. Conversation State Management
 Backend retrieves current session state from Redis.
 Updates session state by extracting new intents and entities from user message (with NLU).
 Sets updated state back in Redis with a 10-minute TTL.
 If session key expires, Redis deletes the key implicitly ending the session.
 
-7. Action Execution
+6. Action Execution
 
 If intent requires transactional action:
 Backend routes request to Transactional Agent.
@@ -46,23 +39,22 @@ Fetches relevant policy text chunks.
 Returns informational text.
 Backend aggregates results from all active agents.
 
-8. Response Streaming
+7. Response Streaming
 Backend makes a STREAMING request to LLM Service with combined context from agents.
 LLM Service streams tokens back to backend.
 Backend forwards tokens to frontend in a loop.
 Frontend renders tokens as text in real time.
 
-9. Clarification and Next Steps
+8. Clarification and Next Steps
 If information is missing or unclear:
 Backend sends clarifying questions via frontend (e.g., "What is your PNR?").
 Frontend waits for new input to continue the conversation.
 
 Additional Notes:
 Session management relies heavily on Redis with a TTL to manage conversation lifespan.
-Caching FAQs in Redis improves response speed for common queries.
 Relevance classification prevents handling out-of-scope queries efficiently.
 Parallel transactional and informational agents enable versatile responses.
 Real-time token streaming enriches user experience with responsive answers.
 All external API calls and agent results should be logged for auditing.
-Handle failures in external APIs and caching gracefully with fallback messages.
 This runbook outlines operational steps, service interactions, data handling, and flow decisions in this multi-component chatbot architecture. It can serve as a guide for administrators, developers, or support teams maintaining the system.
+

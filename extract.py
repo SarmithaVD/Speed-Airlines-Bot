@@ -143,12 +143,3 @@ class AirlineQueryParser:
         except Exception as e:
             print(f"An error occurred during API call: {e}")
             return {"ERROR": str(e)}
-
-API_KEY = "AIzaSyC2uKCYvfg6YGU6WX1zWBotsyQuWqQnTyM"
-
-if not API_KEY:
-    raise EnvironmentError("GEMINI_API_KEY not set. Please set it and re-run.")
-
-print("Initialising parser...")
-parser = AirlineQueryParser(api_key=API_KEY)
-print("Parser ready.\n")

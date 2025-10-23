@@ -5,3 +5,9 @@ torch
 transformers
 tokenizers==0.20.3
 accelerate
+redis
+streamlit-autorefresh
+streamlit
+google-genai
+google-cloud-aiplatform
+

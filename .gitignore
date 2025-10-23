@@ -1,0 +1,5 @@
+asapp
+__pycache__
+# Virtual environment
+venv/
+.venv/

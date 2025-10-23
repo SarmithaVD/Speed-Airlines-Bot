@@ -1,7 +1,9 @@
-pandas
-scikit-learn
-datasets
+fastapi
+uvicorn[standard]
+langchain_huggingface
+langchain_community
+faiss-cpu
 torch
 transformers
-tokenizers==0.20.3
-accelerate
+google-generativeai
+pydantic

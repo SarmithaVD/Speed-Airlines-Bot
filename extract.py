@@ -1,145 +1,139 @@
 import os
 import json
 import datetime
-from pprint import pprint
 import google.generativeai as genai
+from pprint import pprint
+
+# --- Schema for controlled LLM output ---
+ANSWER_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "reply": {"type": "string"},
+        "policy_compliance": {"type": "boolean"},
+        "explanation": {"type": "string"},
+    },
+    "required": ["reply", "policy_compliance"],
+}
+
+def safe_json_loads(possible_json_str):
+    """Safely parses JSON with fallback for incomplete/malformed output."""
+    try:
+        return json.loads(possible_json_str)
+    except json.JSONDecodeError:
+        possible_json_str = possible_json_str.strip()
+        if not possible_json_str.endswith('}'):
+            possible_json_str += '}'
+        try:
+            return json.loads(possible_json_str)
+        except json.JSONDecodeError:
+            return {
+                "reply": f"An error occurred. The model returned malformed JSON: {possible_json_str}",
+                "policy_compliance": False,
+                "explanation": "Returned output was not valid JSON.",
+            }
 
 class AirlineQueryParser:
-    def __init__(self, api_key):
+    """
+    Unified parser for airline queries:
+    - Extracts structured entities from user input
+    - Generates policy-compliant replies using context
+    """
+    def __init__(self, api_key: str, model_name: str = "gemini-2.5-flash-lite"):
         if not api_key:
             raise ValueError("Gemini API key is required.")
-        
         genai.configure(api_key=api_key)
-        
-        # Configure the model for JSON output
-        self.generation_config = genai.GenerationConfig(
-            response_mime_type="application/json" 
+
+        # Extraction model (for entities)
+        self.extraction_model = genai.GenerativeModel(
+            model_name, 
+            generation_config=genai.GenerationConfig(response_mime_type="application/json")
         )
-        
-        self.model = genai.GenerativeModel(
-            'gemini-2.5-flash', 
-            generation_config=self.generation_config
-        )
-        
+        # Generation model (for answers)
+        self.generation_model = genai.GenerativeModel(model_name)
+        print(f"✅ LLM Service (Gemini) initialized with model {model_name}.")
+
         self.system_prompt = self._build_system_prompt()
 
-    def _build_system_prompt(self):
+    def _build_system_prompt(self) -> str:
         return """
-        You are an intelligent airline assistant. Your sole responsibility is to extract specific pieces of information from a user's query and return them in a structured JSON format.
-
-        **Entities to Extract:**
-        - pnr: The 6-character alphanumeric Passenger Name Record (e.g., "AB12CD").
-        - flight_number: The flight identifier (e.g., "BA249", "AI-101").
-        - source: The origin city or airport (e.g., "London", "JFK").
-        - destination: The destination city or airport (e.g., "Boston", "SFO").
-        - seat_number: The passenger's seat (e.g., "22A", "14F").
-        - departure_time: The normalized ISO 8601 (YYYY-MM-DDTHH:MM:SSZ) departure time.
-        - arrival_time: The normalized ISO 8601 (YYYY-MM-DDTHH:MM:SSZ) arrival time.
-        - passenger_name: The name of a passenger (e.g., "John Doe", "Ms. Smith").
-
-        **Rules:**
-        1.  Your output MUST be a single, valid JSON object.
-        2.  Do NOT include any text, explanations, or markdown formatting (like ```json) before or after the JSON.
-        3.  If an entity is not mentioned in the query, its value in the JSON MUST be `null`.
-        4.  Do not add any fields that are not in the schema.
-        5.  You will be provided with a 'Current Datetime (UTC)' in the 'Context' block.
-        6.  You MUST use this 'Current Datetime' as a reference to normalize any relative times (like 'tomorrow', '5pm today', 'this Friday') into a full ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ).
-        7.  If a time is partial (e.g., "tomorrow"), assume a logical time (e.g., 00:00:00Z for the start of the day).
-        8.  Analyze the 'New Query' provided at the end and apply all rules.
-
-        **JSON Schema to follow:**
-        {
-          "pnr": "string or null",
-          "flight_number": "string or null",
-          "source": "string or null",
-          "destination": "string or null",
-          "seat_number": "string or null",
-          "departure_time": "string (ISO 8601) or null",
-          "arrival_time": "string (ISO 8601) or null",
-          "passenger_name": "string or null"
-        }
-
-        **Examples:**
-
-        **Example 1:**
-        Context:
-        Current Datetime (UTC): 2025-10-23T15:00:00Z
-
-        Query: "Hi, I need to check the status of my flight BA249 from London to Boston. My PNR is XJ45K. Is it arriving on time tomorrow?"
-        JSON:
-        {
-          "pnr": "XJ45K",
-          "flight_number": "BA249",
-          "source": "London",
-          "destination": "Boston",
-          "seat_number": null,
-          "departure_time": null,
-          "arrival_time": "2025-10-24T00:00:00Z",
-          "passenger_name": null
-        }
-        
-        **Example 2:**
-        Context:
-        Current Datetime (UTC): 2025-10-23T15:00:00Z (Note: This is a Thursday)
-
-        Query: "I'm flying from Dubai to NYC on EK201 this Friday at 8 PM."
-        JSON:
-        {
-          "pnr": null,
-          "flight_number": "EK201",
-          "source": "Dubai",
-          "destination": "NYC",
-          "seat_number": null,
-          "departure_time": "2025-10-24T20:00:00Z",
-          "arrival_time": null,
-          "passenger_name": null
-        }
-
-        **Example 3:**
-        Context:
-        Current Datetime (UTC): 2025-10-23T15:00:00Z
-
-        Query: "Can I change my seat for John Doe on flight AI-101? I'm in 22A."
-        JSON:
-        {
-          "pnr": null,
-          "flight_number": "AI-101",
-          "source": null,
-          "destination": null,
-          "seat_number": "22A",
-          "departure_time": null,
-          "arrival_time": null,
-          "passenger_name": "John Doe"
-        }
+        You are an intelligent airline assistant. Extract the following from user's query as a valid JSON object:
+        - pnr, flight_number, source, destination, seat_number, departure_time, arrival_time, passenger_name.
+        Rules:
+        1. Output MUST be a single valid JSON object.
+        2. Use 'Current Datetime' for normalizing relative times.
+        3. Missing entities should be `null`.
+        4. Do not add extra fields.
         """
 
-    def extract_details(self, user_query):
-        if not user_query:
-            return {}
-            
+    def extract_details(self, user_query: str) -> dict:
+        """Extracts structured entities from a natural language query."""
         current_time_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
-            
         prompt = (
             f"{self.system_prompt}\n\n"
-            f"**Context:**\n"
-            f"Current Datetime (UTC): {current_time_utc}\n\n"
+            f"**Context:**\nCurrent Datetime (UTC): {current_time_utc}\n\n"
             f"**New Query:**\n{user_query}\nJSON:\n"
         )
-        
         try:
-            # Call the API
-            response = self.model.generate_content(prompt)
-            
-            response_text = response.text
-            
-            # Parse the JSON string into a Python dictionary
-            extracted_data = json.loads(response_text)
-            
-            return extracted_data
-            
-        except json.JSONDecodeError:
-            print(f"ERROR: Model did not return valid JSON.\nResponse:\n{response_text}")
-            return {"ERROR": "Failed to parse model output."}
+            response = self.extraction_model.generate_content(prompt)
+            return json.loads(response.text)
         except Exception as e:
-            print(f"An error occurred during API call: {e}")
-            return {"ERROR": str(e)}
+            print(f"🚨 ERROR during entity extraction: {e}")
+            return {"error": str(e)}
+
+    def generate_answer_from_context(self, user_query: str, context: str) -> dict:
+        """Generates a policy-compliant reply based on RAG context."""
+        if not self.generation_model:
+            return {
+                "reply": "Model not initialized. Cannot generate reply.",
+                "policy_compliance": False,
+                "explanation": "Model initialization failed."
+            }
+        if not context:
+            return {
+                "reply": "No policy info found for that request.",
+                "policy_compliance": False,
+                "explanation": "No RAG context provided."
+            }
+
+        prompt = f"User query: {user_query}\nContext: {context}\nGenerate a polite, concise, policy-compliant reply."
+        gen_config = genai.GenerationConfig(
+            response_mime_type="application/json",
+            response_schema=ANSWER_RESPONSE_SCHEMA,
+            max_output_tokens=512,
+            temperature=0.7
+        )
+
+        try:
+            response = self.generation_model.generate_content(contents=[prompt], generation_config=gen_config)
+            if not response.candidates:
+                return {"reply": "No candidates returned.", "policy_compliance": False, "explanation": "Empty candidates."}
+            
+            candidate = response.candidates[0]
+            if not candidate.content or not candidate.content.parts:
+                return {"reply": "No content parts found.", "policy_compliance": False, "explanation": "Missing content parts."}
+            
+            candidate_text = candidate.content.parts[0].text
+            return safe_json_loads(candidate_text)
+        except Exception as e:
+            print("[Orchestrator] LLM generation failed.", e)
+            return {"reply": "Error during content generation.", "policy_compliance": False, "explanation": str(e)}
+
+# -------------------------
+# Example usage
+# -------------------------
+if __name__ == "__main__":
+    API_KEY = "YOUR_GEMINI_API_KEY"  # Or read from env var
+    parser = AirlineQueryParser(api_key=API_KEY, model_name="gemini-2.5-flash-lite")
+    
+    # Test extraction
+    test_query = "Please provide details for flight QF12 from Sydney to Los Angeles. My PNR is ZT34WX and I'm seated at 14F."
+    print("\n--- Extract Details ---")
+    details = parser.extract_details(test_query)
+    pprint(details)
+
+    # Test answer generation
+    rag_context = "Company policy states that only 2 pets are allowed per flight."
+    print("\n--- Generate Answer ---")
+    answer = parser.generate_answer_from_context("How many pets can I bring on a flight?", rag_context)
+    pprint(answer)
+

@@ -4,12 +4,26 @@ from typing import Dict, Any
 import os
 import datetime
 from pprint import pprint
+import requests
 
 try:
     from extract import AirlineQueryParser
 except ImportError:
     print("ERROR: 'extract.py' not found. Please make sure it's in the same directory.")
     exit()
+
+TRANSACTIONAL_INTENTS = {
+    'search_flight', 'book_flight', 'check_flight_reservation', 'cancel_flight', 
+    'change_flight', 'get_refund', 'check_in', 'get_boarding_pass', 'change_seat', 
+    'check_flight_status', 'purchase_flight_insurance', 'book_trip', 'cancel_trip', 
+    'change_trip', 'check_arrival_time', 'check_departure_time', 'check_flight_offers', 
+    'check_flight_prices', 'check_trip_details', 'check_trip_offers', 'check_trip_plan', 
+    'check_trip_prices', 'choose_seat', 'print_boarding_pass', 'purchase_trip_insurance', 'search_trip'
+}
+
+INFORMATIONAL_INTENTS = {'ask_policy'}
+
+CONVERSATIONAL_INTENTS = {'inform', 'greeting', 'irrelevant', 'end_conversation'}
 
 # Loads an intent model and a LLM entity parser to process queries
 class NLU_Service:
@@ -41,8 +55,13 @@ class NLU_Service:
 
     def process_query(self, query, threshold = 0.5):
         if not self.model or not self.parser:
-            return {"intents": ["error"], "entities": {}, "response_type": "error", "error_message": "NLU service not fully initialized."}
-
+            return {
+                "error_message": "NLU service not fully initialized.",
+                "transactional_intents": [],
+                "informational_intents": [],
+                "conversational_intents": []
+            }
+        
         # Intent Classification
         inputs = self.tokenizer(query, return_tensors="pt", truncation=True, padding=True).to(self.device)
         with torch.no_grad():
@@ -54,69 +73,107 @@ class NLU_Service:
             if prob > threshold:
                 predicted_intents.append(self.model.config.id2label[i])
         
-        conversational_intents = ['inform', 'greeting', 'irrelevant', 'end_conversation']
-        actionable_intents = [i for i in predicted_intents if i not in conversational_intents]
-
-        intents = []
-
-        if actionable_intents:
-            response_type = 'relevant'
-            intents.extend(actionable_intents)
-        if 'inform' in predicted_intents:
-            if len(intents) >= 1:
-                intents.append('inform')
-            else:
-                response_type = 'inform'
-                intents = ['inform']
-        elif 'greeting' in predicted_intents:
-            response_type = 'greeting'
-            intents = ['greeting']
-        elif 'end_conversation' in predicted_intents:
-            response_type = 'end_conversation' 
-            intents = ['end_conversation']
-        else:
-            response_type = 'irrelevant'
-            intents = ['irrelevant']
-
-        # Extract important information / details
-        entities = {}
-        if response_type in ['relevant', 'inform']:
-            entities = self.parser.extract_details(query)
-
-        return {
-            "intents": intents,
-            "entities": entities,
-            "response_type": response_type
+        categorized_intents = {
+            "transactional_intents": [],
+            "informational_intents": [],
+            "conversational_intents": []
         }
         
-def handle_nlu_output(nlu_result):
-    print(f"\nNLU Output:") 
-    pprint(nlu_result)
-    
-    response_type = nlu_result.get('response_type')
-    intents = nlu_result.get('intents', [])
-    entities = nlu_result.get('entities', {})
+        if not predicted_intents:
+             categorized_intents["conversational_intents"].append('irrelevant')
+        else:
+            for intent in predicted_intents:
+                if intent in TRANSACTIONAL_INTENTS:
+                    categorized_intents["transactional_intents"].append(intent)
+                elif intent in INFORMATIONAL_INTENTS:
+                    categorized_intents["informational_intents"].append(intent)
+                elif intent in CONVERSATIONAL_INTENTS:
+                    categorized_intents["conversational_intents"].append(intent)
 
-    if response_type == 'greeting':
-        print("Orchestrator Action: Greet user back and ask for their query.")
+        # 3. Handle default/fallback cases
+        if not categorized_intents["transactional_intents"] and \
+           not categorized_intents["informational_intents"] and \
+           not categorized_intents["conversational_intents"]:
+             categorized_intents["conversational_intents"].append('irrelevant')
+             
+        return categorized_intents
+
+def call_rag_service(query: str, rag_api_url: str) -> Dict[str, Any]:
+    """
+    Calls the external RAG service API.
+    """
+    print(f"--- Calling RAG Service at {rag_api_url} ---")
+    payload = {
+        "user_id": "local_user",
+        "session_id": "local_session",
+        "message": query
+    }
+    try:
+        response = requests.post(rag_api_url, json=payload, timeout=10) # 10-second timeout
+        response.raise_for_status() # Raise an exception for bad status codes (4xx, 5xx)
+        return response.json()
+    except requests.exceptions.HTTPError as http_err:
+        print(f"🚨 RAG API HTTP error: {http_err}")
+        return {"error": f"HTTP error: {http_err.response.text}"}
+    except requests.exceptions.ConnectionError as conn_err:
+        print(f"🚨 RAG API Connection error: {conn_err}")
+        return {"error": "Could not connect to RAG service."}
+    except Exception as e:
+        print(f"🚨 RAG API general error: {e}")
+        return {"error": str(e)}
+
+def handle_nlu_output(nlu: NLU_Service, nlu_result: Dict[str, Any], query: str, rag_api_url: str):
+    """
+    This function acts as the Orchestrator.
+    It receives the categorized intents and decides which agent(s) to call.
+    """
+    print(f"--- \nNLU Output: {nlu_result}")
     
-    elif response_type == 'end_conversation':
-        print("Orchestrator Action: Say goodbye and end the session. (e.g., 'Thanks for chatting, goodbye!')")
+    transactional_intents = nlu_result.get('transactional_intents', [])
+    informational_intents = nlu_result.get('informational_intents', [])
+    conversational_intents = nlu_result.get('conversational_intents', [])
     
-    elif response_type == 'irrelevant':
-        print("Orchestrator Action: Inform user of capabilities and ask for a new query. (e.g., 'I can only help with airline questions. Do you have another query?')")
+    # Flag to track if any agent was called
+    did_action = False
+
+    # --- 1. Transactional Agent ---
+    if transactional_intents:
+        print(f"\nOrchestrator Action: Routing to Transactional Agent for intent(s): {transactional_intents}")
+        print("...Calling Entity Parser (Gemini)...")
+        entities = nlu.parser.extract_details(query)
+        print("Entity Output:")
+        pprint(entities)
+        # In a real app, you would now pass these entities to the agent
+        did_action = True
+
+    # --- 2. Informational Agent (RAG) ---
+    if informational_intents:
+        print(f"\nOrchestrator Action: Routing to Informational Agent (RAG) for intent(s): {informational_intents}")
+        rag_response = call_rag_service(query, rag_api_url)
+        print("RAG Service Output:")
+        pprint(rag_response)
+        did_action = True
     
-    elif response_type == 'inform':
-        print(f"Orchestrator Action: Populate session state with entities {entities} and ask a clarifying question.")
-    
-    elif response_type == 'relevant':
-        print(f"Orchestrator Action: Route to agent(s) for intent(s): {intents} with entities: {entities}.")
-        # Check for multi-intent
-        if len(intents) > 1:
-            print("  -> Detected multiple intents. Triggering parallel processing.")
-    
-    elif response_type == 'error':
-        print("Orchestrator Action: Handle error gracefully. (e.g., 'Sorry, I'm having trouble right now.')")
-    
+    # --- 3. Conversational Agent ---
+    if did_action:
+        # If we took an action, we don't also need to handle simple conversation
+        # (e.g., "hi, check my flight" -> we check the flight, we don't just say "hi")
+        if 'end_conversation' in conversational_intents:
+             print("\nOrchestrator Action: (Also detected end_conversation, closing session.)")
+        return
+
+    # If no other agents were called, handle simple conversation
+    if 'greeting' in conversational_intents:
+        print("\nOrchestrator Action: Greet user back and ask for their query.")
+    elif 'end_conversation' in conversational_intents:
+        print("\nOrchestrator Action: Say goodbye and end the session.")
+    elif 'inform' in conversational_intents:
+        print("\nOrchestrator Action: Calling Entity Parser (Gemini) for 'inform' intent...")
+        entities = nlu.parser.extract_details(query)
+        print("Entity Output (from 'inform'):")
+        pprint(entities)
+        print("Orchestrator Action: Populating session state and asking a clarifying question.")
+    elif 'irrelevant' in conversational_intents:
+        print("\nOrchestrator Action: Inform user of capabilities and ask for a new query.")
     else:
-        print(f"Orchestrator Action: Received unknown response_type '{response_type}'. Defaulting to irrelevant.")
+        print("\nOrchestrator Action: No strong intent detected. Asking for clarification.")
